@@ -233,7 +233,7 @@ with tab_guias:
             if f_mes2 != "Todos":
                 df_g = df_g[df_g["mes"] == f_mes2]
 
-            st.dataframe(df_g, use_container_width=True, hide_index=True)
+            st.dataframe(df_g, width='stretch', hide_index=True)
 
 # ============================================================
 # TAB 3: OCs
@@ -273,7 +273,7 @@ with tab_ocs:
         ] if c in df_f.columns]
 
         st.caption(f"{len(df_f)} items")
-        st.dataframe(df_f[cols], use_container_width=True, hide_index=True)
+        st.dataframe(df_f[cols], width='stretch', hide_index=True)
 
 # ============================================================
 # TAB 4: Facturas
@@ -334,7 +334,7 @@ with tab_facturas:
         ] if c in df_f.columns]
 
         st.caption(f"{len(df_f)} facturas")
-        st.dataframe(df_f[cols], use_container_width=True, hide_index=True)
+        st.dataframe(df_f[cols], width='stretch', hide_index=True)
 
 # ============================================================
 # TAB 5: Control Nelida
@@ -372,7 +372,7 @@ with tab_nelida:
                 "codigo_oc", "factura_venta", "guia", "factura_compra", "estado", "observaciones"
             ] if c in df_f.columns]
             st.caption(f"{len(df_f)} proyectos")
-            st.dataframe(df_f[cols] if cols else df_f, use_container_width=True, hide_index=True)
+            st.dataframe(df_f[cols] if cols else df_f, width='stretch', hide_index=True)
 
     with sub_coupa:
         df_coupa = cargar_coupa()
@@ -383,4 +383,4 @@ with tab_nelida:
                 "numero_factura", "fecha", "monto", "moneda", "estado_pago", "codigo_oc"
             ] if c in df_coupa.columns]
             st.caption(f"{len(df_coupa)} registros")
-            st.dataframe(df_coupa[cols] if cols else df_coupa, use_container_width=True, hide_index=True)
+            st.dataframe(df_coupa[cols] if cols else df_coupa, width='stretch', hide_index=True)
