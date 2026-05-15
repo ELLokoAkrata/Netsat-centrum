@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Credenciales — nunca al repo
+credentials.yaml
+
+# Datos operativos y privados
+CONTROL DE FACTURAS EMITIDAS NETSAT 2026-2025.xlsx
+cruce_despachos*.xlsx
+sugerencias_*.xlsx
+
+# Imágenes y capturas temporales
+*.png
+*.jpg
+
+# PDFs de guías (datos internos, viven en Z: y Supabase)
+GUIAS */
+GUIAS*/
+
+# Excel con datos operativos internos
+*.xlsx
+*.xls
+
+# Documentos internos
+HISTORIAL.md
+GUIA_NELIDA.txt
+
+# Claude interno
+.claude/settings.json
+.mcp.json
