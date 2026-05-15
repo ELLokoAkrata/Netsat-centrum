@@ -124,8 +124,11 @@ def migrar_pdfs():
 # 2. Migrar Excel de Nélida
 # ---------------------------------------------------------------------------
 def _nelida_path() -> Path:
-    if NELIDA_PRIMARY.exists():
-        return NELIDA_PRIMARY
+    try:
+        if NELIDA_PRIMARY.exists():
+            return NELIDA_PRIMARY
+    except PermissionError:
+        pass  # archivo abierto en Excel — usar backup
     if NELIDA_BACKUP.exists():
         return NELIDA_BACKUP
     sys.exit("ERROR: no se encontro el archivo de Nelida")  # print-safe: sin tildes
