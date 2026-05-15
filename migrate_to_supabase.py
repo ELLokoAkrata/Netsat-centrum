@@ -128,7 +128,7 @@ def _nelida_path() -> Path:
         return NELIDA_PRIMARY
     if NELIDA_BACKUP.exists():
         return NELIDA_BACKUP
-    sys.exit("ERROR: no se encontró el archivo de Nélida")
+    sys.exit("ERROR: no se encontro el archivo de Nelida")  # print-safe: sin tildes
 
 import unicodedata
 
@@ -178,17 +178,17 @@ def migrar_facturas(path: Path):
     print(f"  Columnas FACTURAS: {list(df.columns)}")
 
     c_num  = _find_col(df, "FACTURA N°", "FACTURA N", "FACTURA")
-    c_fec  = _find_col(df, "FECHA EMISION", "FECHA EMISIÓN", "FECHA")
+    c_fec  = _find_col(df, "FECHA EMISION", "FECHA EMISION", "FECHA")
     c_cli  = _find_col(df, "CLIENTE")
     c_vs   = _find_col(df, "VALOR SIN IGV SOL", "VALOR SIN IGV SOLES", "V/VENTA S/")
     c_is   = _find_col(df, "IGV SOLES", "IGV S/")
     c_ts   = _find_col(df, "TOTAL SOLES", "TOTAL S/")
-    c_vd   = _find_col(df, "VALOR SIN IGV DÓLAR", "VALOR SIN IGV DOLAR", "V/VENTA $")
-    c_id   = _find_col(df, "IGV DÓLAR", "IGV DOLAR", "IGV $")
-    c_td   = _find_col(df, "TOTAL DÓLAR", "TOTAL DOLAR", "TOTAL $")
+    c_vd   = _find_col(df, "VALOR SIN IGV DOLAR", "VALOR SIN IGV DOLAR", "V/VENTA $")
+    c_id   = _find_col(df, "IGV DOLAR", "IGV DOLAR", "IGV $")
+    c_td   = _find_col(df, "TOTAL DOLAR", "TOTAL DOLAR", "TOTAL $")
     c_pag  = _find_col(df, "PAGADO")
-    c_ret  = _find_col(df, "RETENCION ENTREGADA", "RETENCIÓN ENTREGADA", "RETENCION")
-    c_det  = _find_col(df, "DETRACCION ENTREGADA", "DETRACCIÓN ENTREGADA", "DETRACCION")
+    c_ret  = _find_col(df, "RETENCION ENTREGADA", "RETENCION ENTREGADA", "RETENCION")
+    c_det  = _find_col(df, "DETRACCION ENTREGADA", "DETRACCION ENTREGADA", "DETRACCION")
     c_gui  = _find_col(df, "GUIA REMISION", "GUIA REMISION", "GUIA")
     c_oc   = _find_col(df, "ORDEN DE COMPRA", "OC")
     c_obs  = _find_col(df, "OBSERVACIONES", "OBS")
@@ -263,29 +263,36 @@ def migrar_guias_excel(path: Path):
     print(f"  OK Guias (Excel) insertadas: {len(rows)}")
 
 def migrar_proyectos(path: Path):
-    # El Excel tiene una fila de título antes del encabezado real — detectar header dinámicamente
+    # Fila 0 tiene título con "PROYECTO" que engaña la detección simple.
+    # Buscar la fila que tenga O/C y al menos 4 celdas no vacías.
     df_raw = pd.read_excel(path, sheet_name="PROY-2026", header=None)
     header_row = 0
     for i, row in df_raw.iterrows():
-        vals = [str(v).upper() for v in row if pd.notna(v)]
-        if any("OC" in v or "PROYECTO" in v or "FACTURA" in v for v in vals):
+        vals = [str(v) for v in row if pd.notna(v)]
+        if len(vals) >= 4 and any("O/C" in v or "#Proyecto" in v for v in vals):
             header_row = i
             break
     df = pd.read_excel(path, sheet_name="PROY-2026", header=header_row)
     df.columns = [str(c).strip() for c in df.columns]
     print(f"  Columnas PROY-2026: {list(df.columns)}")
 
+    c_oc    = _find_col(df, "O/C", "OC")
+    c_fvta  = _find_col(df, "Fac. Ventas", "Factura Venta", "FAC VENTA")
+    c_guia  = _find_col(df, "Guia Ventas", "Guia Ventas", "GUIA")
+    c_fcmp  = _find_col(df, "Fac. Compras", "Factura Compra", "FAC COMPRA")
+    c_est   = _find_col(df, "Estado", "ESTADO")
+
     rows = []
     for _, row in df.iterrows():
-        fila = {c: limpiar_texto(row[c]) for c in df.columns}
-        if all(v is None for v in fila.values()):
+        oc = limpiar_texto(row[c_oc]) if c_oc else None
+        if not oc:
             continue
         rows.append({
-            "codigo_oc":      next((fila[c] for c in df.columns if "OC" in c.upper() and fila.get(c)), None),
-            "factura_venta":  next((fila[c] for c in df.columns if "VENTA" in c.upper() and fila.get(c)), None),
-            "guia":           next((fila[c] for c in df.columns if "GUIA" in c.upper() and fila.get(c)), None),
-            "factura_compra": next((fila[c] for c in df.columns if "COMPRA" in c.upper() and fila.get(c)), None),
-            "estado":         next((fila[c] for c in df.columns if "ESTADO" in c.upper() and fila.get(c)), None),
+            "codigo_oc":      oc,
+            "factura_venta":  limpiar_texto(row[c_fvta])  if c_fvta else None,
+            "guia":           limpiar_texto(row[c_guia])  if c_guia else None,
+            "factura_compra": limpiar_texto(row[c_fcmp])  if c_fcmp else None,
+            "estado":         limpiar_texto(row[c_est])   if c_est  else None,
             "anio":           2026,
         })
 
@@ -294,26 +301,35 @@ def migrar_proyectos(path: Path):
     print(f"  OK Proyectos insertados: {len(rows)}")
 
 def migrar_coupa(path: Path):
+    # Filas 0-2 tienen leyenda/notas. Header real esta en la fila con O/C y 5+ celdas.
     df_raw = pd.read_excel(path, sheet_name="COUPA2026", header=None)
     header_row = 0
     for i, row in df_raw.iterrows():
-        vals = [str(v).upper() for v in row if pd.notna(v)]
-        if any("FACTURA" in v or "ESTADO" in v or "OC" in v for v in vals):
+        vals = [str(v) for v in row if pd.notna(v)]
+        if len(vals) >= 5 and any("O/C" in v for v in vals):
             header_row = i
             break
     df = pd.read_excel(path, sheet_name="COUPA2026", header=header_row)
     df.columns = [str(c).strip() for c in df.columns]
     print(f"  Columnas COUPA2026: {list(df.columns)}")
 
+    c_fac  = _find_col(df, "Factura", "FACTURA")
+    c_fec  = _find_col(df, "Fecha", "FECHA")
+    c_mon  = _find_col(df, "Monto", "MONTO")
+    c_oc   = _find_col(df, "O/C", "OC")
+    c_est  = _find_col(df, "COUPA", "Estado", "ESTADO")
+
     rows = []
     for _, row in df.iterrows():
-        fila = {c: limpiar_texto(row[c]) for c in df.columns}
-        if all(v is None for v in fila.values()):
+        fac = limpiar_texto(row[c_fac]) if c_fac else None
+        if not fac or not str(fac).startswith("F"):
             continue
         rows.append({
-            "numero_factura": next((fila[c] for c in df.columns if "FACTURA" in c.upper() and fila.get(c)), None),
-            "estado_pago":    next((fila[c] for c in df.columns if "ESTADO" in c.upper() and fila.get(c)), None),
-            "codigo_oc":      next((fila[c] for c in df.columns if "OC" in c.upper() and fila.get(c)), None),
+            "numero_factura": fac,
+            "fecha":          limpiar_fecha(row[c_fec])   if c_fec else None,
+            "monto":          limpiar_numero(row[c_mon])  if c_mon else None,
+            "codigo_oc":      limpiar_texto(row[c_oc])    if c_oc  else None,
+            "estado_pago":    limpiar_texto(row[c_est])   if c_est else None,
             "anio":           2026,
         })
 
@@ -321,9 +337,53 @@ def migrar_coupa(path: Path):
         supabase.table("coupa").insert(rows).execute()
     print(f"  OK COUPA insertados: {len(rows)}")
 
+def migrar_ocs():
+    path = LOCAL_BASE / "OC_Antapaccay.xlsx"
+    if not path.exists():
+        print("  SKIP: OC_Antapaccay.xlsx no encontrado")
+        return
+
+    df_raw = pd.read_excel(path, sheet_name="Hoja1", header=None)
+    header_row = 0
+    for i, row in df_raw.iterrows():
+        vals = [str(v).upper() for v in row if pd.notna(v)]
+        if "OC" in vals or any("OC" == v.strip() for v in vals):
+            header_row = i
+            break
+    df = pd.read_excel(path, sheet_name="Hoja1", header=header_row)
+    df.columns = [str(c).strip() for c in df.columns]
+    print(f"  Columnas OC: {list(df.columns)}")
+
+    c_oc   = _find_col(df, "OC")
+    c_item = _find_col(df, "Item", "ITEM")
+    c_desc = _find_col(df, "Descripcion", "Descripcion", "DESCRIPCION")
+    c_cant = _find_col(df, "Cant", "CANTIDAD")
+    c_vuu  = _find_col(df, "Venta Unit US $", "Venta Unit", "VENTA UNIT")
+    c_vtu  = _find_col(df, "Venta Total US $", "Venta Total", "VENTA TOTAL")
+    c_obs  = _find_col(df, "Observaciones", "OBS")
+
+    rows = []
+    for _, row in df.iterrows():
+        oc = limpiar_texto(row[c_oc]) if c_oc else None
+        if not oc:
+            continue
+        rows.append({
+            "codigo_oc":      oc,
+            "item":           limpiar_texto(row[c_item])   if c_item else None,
+            "descripcion":    limpiar_texto(row[c_desc])   if c_desc else None,
+            "cantidad":       limpiar_numero(row[c_cant])  if c_cant else None,
+            "venta_unit_usd": limpiar_numero(row[c_vuu])   if c_vuu  else None,
+            "venta_total_usd":limpiar_numero(row[c_vtu])   if c_vtu  else None,
+            "observaciones":  limpiar_texto(row[c_obs])    if c_obs  else None,
+        })
+
+    if rows:
+        supabase.table("ocs").upsert(rows, on_conflict="codigo_oc,item").execute()
+    print(f"  OK OCs insertadas: {len(rows)}")
+
 def migrar_excel_nelida():
     path = _nelida_path()
-    print(f"\nLeyendo archivo de Nélida: {path}")
+    print(f"\nLeyendo archivo de Nelida: {path}")
     xl = pd.ExcelFile(path)
     print(f"Hojas encontradas: {xl.sheet_names}")
 
@@ -348,15 +408,18 @@ def migrar_excel_nelida():
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     print("=" * 60)
-    print("NETSAT — Migración inicial a Supabase")
+    print("NETSAT - Migracion a Supabase")
     print(f"Inicio: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"Base de guías: {'Z: (red)' if Z_BASE.exists() else 'local'}")
+    print(f"Base de guias: {'Z: (red)' if Z_BASE.exists() else 'local'}")
     print("=" * 60)
 
-    print("\n[1/2] Subiendo PDFs a Storage...")
+    print("\n[1/3] Subiendo PDFs a Storage...")
     migrar_pdfs()
 
-    print("\n[2/2] Migrando Excel de Nélida...")
+    print("\n[2/3] Migrando OCs (OC_Antapaccay.xlsx)...")
+    migrar_ocs()
+
+    print("\n[3/3] Migrando Excel de Nelida...")
     migrar_excel_nelida()
 
     print("\n" + "=" * 60)

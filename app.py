@@ -1,6 +1,6 @@
 """
 app.py - Netsat Centrum
-App unificada para gestion de documentos NETSAT SRL.
+App unificada para gestión de documentos NETSAT SRL.
 Deploy: Streamlit Community Cloud
 Secrets requeridos: SUPABASE_URL, SUPABASE_KEY, APP_PASSWORD
 """
@@ -31,15 +31,15 @@ def require_login():
     _, col, _ = st.columns([1, 1, 1])
     with col:
         st.markdown("## Netsat Centrum")
-        st.caption("Sistema de gestion de documentos NETSAT SRL")
+        st.caption("Sistema de gestión de documentos NETSAT SRL")
         st.divider()
-        pwd = st.text_input("Contrasena", type="password")
+        pwd = st.text_input("Contraseña", type="password")
         if st.button("Ingresar", use_container_width=True):
             if pwd == st.secrets.get("APP_PASSWORD", ""):
                 st.session_state.auth = True
                 st.rerun()
             else:
-                st.error("Contrasena incorrecta")
+                st.error("Contraseña incorrecta")
     st.stop()
 
 require_login()
@@ -54,7 +54,7 @@ with col_titulo:
     st.title("Netsat Centrum")
 with col_logout:
     st.write("")
-    if st.button("Cerrar sesion", use_container_width=True):
+    if st.button("Cerrar sesión", use_container_width=True):
         st.session_state.clear()
         st.rerun()
 
@@ -87,39 +87,39 @@ def boton_descarga(bucket: str, path: str, nombre: str, uid: str):
 # Tabs principales
 # ---------------------------------------------------------------------------
 tab_doc, tab_guias, tab_ocs, tab_facturas, tab_nelida = st.tabs([
-    "Documentacion",
-    "Guias",
+    "Documentación",
+    "Guías",
     "OCs",
     "Facturas",
-    "Control Nelida",
+    "Control Nélida",
 ])
 
 # ============================================================
 # TAB 1: Documentacion
 # ============================================================
 with tab_doc:
-    st.header("Como usar Netsat Centrum")
+    st.header("Cómo usar Netsat Centrum")
     st.markdown("""
     **Netsat Centrum** centraliza los documentos operativos de NETSAT SRL en una sola
     plataforma accesible desde cualquier dispositivo con internet.
 
     ---
 
-    ### Pestanas disponibles
+    ### Pestañas disponibles
 
-    | Pestana | Que contiene |
+    | Pestaña | Qué contiene |
     |---------|-------------|
-    | **Guias** | Guias de remision selladas y digitales — descargables por mes y tipo |
-    | **OCs** | Ordenes de compra internas con precios y cantidades |
+    | **Guías** | Guías de remisión selladas y digitales — descargables por mes y tipo |
+    | **OCs** | Órdenes de compra internas con precios y cantidades |
     | **Facturas** | Facturas emitidas con montos, estado de pago y referencias |
-    | **Control Nelida** | Proyectos 2026 y estado COUPA de Antapaccay |
+    | **Control Nélida** | Proyectos 2026 y estado COUPA de Antapaccay |
 
     ---
 
-    ### Como descargar un archivo
+    ### Cómo descargar un archivo
 
-    1. Ve a la pestana **Guias**
-    2. Usa los filtros para encontrar la guia (por mes, tipo o numero)
+    1. Ve a la pestaña **Guías**
+    2. Usa los filtros para encontrar la guía (por mes, tipo o número)
     3. Haz clic en **Descargar** — el sistema prepara el archivo
     4. Cuando aparezca **Guardar archivo**, haz clic para guardarlo en tu equipo
 
@@ -131,17 +131,17 @@ with tab_doc:
 
     | Usuario | Equipo | Rol |
     |---------|--------|-----|
-    | Ricardo Junior | Laptop / RDP | Desarrollo y administracion |
-    | Hector | PC-Netsat | Sube guias y documentos |
+    | Ricardo Junior | Laptop / RDP | Desarrollo y administración |
+    | Héctor | PC-Netsat | Sube guías y documentos |
     | Ricardo (padre) | Laptop | Consulta y descarga |
-    | Nelida | PC propia | Control de facturas |
+    | Nélida | PC propia | Control de facturas |
     """)
 
 # ============================================================
 # TAB 2: Guias
 # ============================================================
 with tab_guias:
-    st.header("Guias de Remision 2026")
+    st.header("Guías de Remisión 2026")
 
     @st.cache_data(ttl=300)
     def cargar_archivos():
@@ -163,7 +163,7 @@ with tab_guias:
     df_arch = cargar_archivos()
 
     if df_arch.empty:
-        st.info("No hay archivos cargados aun.")
+        st.info("No hay archivos cargados aún.")
     else:
         # Filtros
         col1, col2, col3 = st.columns(3)
@@ -173,7 +173,7 @@ with tab_guias:
         with col2:
             f_tipo = st.selectbox("Tipo", ["Todos", "Sellada", "Digital"], key="g_tipo")
         with col3:
-            f_buscar = st.text_input("Buscar (numero guia o nombre)", key="g_buscar")
+            f_buscar = st.text_input("Buscar (número guía o nombre)", key="g_buscar")
 
         df_f = df_arch.copy()
         if f_mes != "Todos":
@@ -197,7 +197,7 @@ with tab_guias:
         h1.markdown("**Archivo**")
         h2.markdown("**Mes**")
         h3.markdown("**Tipo**")
-        h4.markdown("**Accion**")
+        h4.markdown("**Acción**")
         st.divider()
 
         for _, row in df_f.iterrows():
@@ -219,7 +219,7 @@ with tab_guias:
         df_guias = cargar_guias_db()
         if not df_guias.empty:
             st.divider()
-            st.subheader("Datos de guias (control Nelida)")
+            st.subheader("Datos de guías (control Nélida)")
             col1, col2 = st.columns(2)
             with col1:
                 f_est = st.selectbox("Estatus", ["Todos", "COMPLETO", "INCOMPLETO"], key="g_est")
@@ -239,7 +239,7 @@ with tab_guias:
 # TAB 3: OCs
 # ============================================================
 with tab_ocs:
-    st.header("Ordenes de Compra")
+    st.header("Órdenes de Compra")
 
     @st.cache_data(ttl=300)
     def cargar_ocs():
@@ -253,13 +253,13 @@ with tab_ocs:
     df_ocs = cargar_ocs()
 
     if df_ocs.empty:
-        st.info("No hay OCs cargadas aun.")
+        st.info("No hay OCs cargadas aún.")
     else:
         col1, col2 = st.columns(2)
         with col1:
-            f_oc = st.text_input("Buscar codigo OC", key="oc_cod")
+            f_oc = st.text_input("Buscar código OC", key="oc_cod")
         with col2:
-            f_desc = st.text_input("Buscar descripcion", key="oc_desc")
+            f_desc = st.text_input("Buscar descripción", key="oc_desc")
 
         df_f = df_ocs.copy()
         if f_oc:
@@ -293,7 +293,7 @@ with tab_facturas:
     df_fact = cargar_facturas()
 
     if df_fact.empty:
-        st.info("No hay facturas cargadas aun.")
+        st.info("No hay facturas cargadas aún.")
     else:
         # Metricas
         pagadas = 0
@@ -307,14 +307,14 @@ with tab_facturas:
         col1.metric("Total facturas", len(df_fact))
         col2.metric("Pagadas", pagadas)
         col3.metric("Pendientes", len(df_fact) - pagadas)
-        col4.metric("Total facturado USD", f"$ {total_usd:,.2f}")
+        col4.metric("Total facturado (USD)", f"$ {total_usd:,.2f}")
 
         st.divider()
 
         # Filtros
         col1, col2, col3 = st.columns(3)
         with col1:
-            f_num = st.text_input("Numero factura", key="f_num")
+            f_num = st.text_input("Número factura", key="f_num")
         with col2:
             f_pag = st.selectbox("Estado de pago", ["Todos", "SI", "NO"], key="f_pag")
         with col3:
@@ -340,7 +340,7 @@ with tab_facturas:
 # TAB 5: Control Nelida
 # ============================================================
 with tab_nelida:
-    st.header("Control Nelida")
+    st.header("Control Nélida")
 
     @st.cache_data(ttl=300)
     def cargar_proyectos():
@@ -357,12 +357,12 @@ with tab_nelida:
         cargar_coupa.clear()
         st.rerun()
 
-    sub_proy, sub_coupa = st.tabs(["Proyectos 2026", "COUPA"])
+    sub_proy, sub_coupa = st.tabs(["Proyectos 2026", "Estado COUPA"])
 
     with sub_proy:
         df_proy = cargar_proyectos()
         if df_proy.empty:
-            st.info("No hay proyectos cargados.")
+            st.info("No hay proyectos cargados aún.")
         else:
             f_oc = st.text_input("Buscar OC", key="n_oc")
             df_f = df_proy.copy()
@@ -377,7 +377,7 @@ with tab_nelida:
     with sub_coupa:
         df_coupa = cargar_coupa()
         if df_coupa.empty:
-            st.info("No hay datos COUPA cargados.")
+            st.info("No hay datos COUPA cargados aún.")
         else:
             cols = [c for c in [
                 "numero_factura", "fecha", "monto", "moneda", "estado_pago", "codigo_oc"
