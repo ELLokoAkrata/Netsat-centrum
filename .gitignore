@@ -31,6 +31,9 @@ GUIAS*/
 HISTORIAL.md
 GUIA_NELIDA.txt
 
+# Documentación interna (rutas, arquitectura, usuarios)
+docs/
+
 # Claude interno
 .claude/settings.json
 .mcp.json
