@@ -34,6 +34,7 @@ GUIA_NELIDA.txt
 # Documentación interna (rutas, arquitectura, usuarios)
 docs/
 
-# Claude interno
-.claude/settings.json
+# Claude interno — nunca al repo
+CLAUDE.md
+.claude/
 .mcp.json

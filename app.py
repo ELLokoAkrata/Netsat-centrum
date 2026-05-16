@@ -34,7 +34,7 @@ def require_login():
         st.caption("Sistema de gestión de documentos NETSAT SRL")
         st.divider()
         pwd = st.text_input("Contraseña", type="password")
-        if st.button("Ingresar", use_container_width=True):
+        if st.button("Ingresar", width="stretch"):
             if pwd == st.secrets.get("APP_PASSWORD", ""):
                 st.session_state.auth = True
                 st.rerun()
@@ -54,7 +54,7 @@ with col_titulo:
     st.title("Netsat Centrum")
 with col_logout:
     st.write("")
-    if st.button("Cerrar sesión", use_container_width=True):
+    if st.button("Cerrar sesión", width="stretch"):
         st.session_state.clear()
         st.rerun()
 
@@ -75,10 +75,10 @@ def boton_descarga(bucket: str, path: str, nombre: str, uid: str):
             mime="application/pdf",
             key=f"dl_{uid}",
             on_click=_limpiar,
-            use_container_width=True,
+            width="stretch",
         )
     else:
-        if st.button("Descargar", key=f"fetch_{uid}", use_container_width=True):
+        if st.button("Descargar", key=f"fetch_{uid}", width="stretch"):
             with st.spinner("Preparando..."):
                 st.session_state[k] = supabase.storage.from_(bucket).download(path)
             st.rerun()
