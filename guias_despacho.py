@@ -3,6 +3,8 @@ import pandas as pd
 import pdfplumber
 import re
 import os
+import io
+import zipfile
 from datetime import datetime
 from auth import require_login
 
@@ -103,6 +105,20 @@ def cargar_pdfs():
     df = pd.DataFrame(registros)
     df["Fecha_Traslado"] = pd.to_datetime(df["Fecha_Traslado"], format="%d/%m/%Y", errors="coerce")
     return df.sort_values("Guia_num").reset_index(drop=True)
+
+
+def zip_guias_mes(mes_folder_orig: str, mes_folder_selladas: str) -> bytes | None:
+    """Empaqueta todos los PDFs sellados de un mes en un ZIP en memoria."""
+    if not os.path.exists(mes_folder_selladas):
+        return None
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for filename in sorted(os.listdir(mes_folder_selladas)):
+            if filename.lower().endswith(".pdf"):
+                zf.write(os.path.join(mes_folder_selladas, filename), filename)
+    buf.seek(0)
+    data = buf.read()
+    return data if data else None
 
 
 def cruzar(nelida, pdfs):
@@ -226,6 +242,48 @@ with tab2:
     if pdfs.empty:
         st.warning("No se encontraron PDFs sellados en Z:. Verifica que la red esté conectada.")
     else:
+        # ── Descarga por mes ──────────────────────────────────────
+        st.subheader("⬇️ Descargar guías por mes")
+
+        _folders = _guias_folders()
+        _meses_disponibles = {
+            os.path.basename(f_orig): (f_sell, f_orig)
+            for f_sell, f_orig in _folders
+            if os.path.exists(f_sell)
+        }
+
+        if not _meses_disponibles:
+            st.info("No hay carpetas de guías selladas accesibles en la red.")
+        else:
+            col_sel, col_info, col_btn = st.columns([3, 2, 2])
+            with col_sel:
+                mes_elegido = st.selectbox(
+                    "Seleccionar mes",
+                    options=list(_meses_disponibles.keys()),
+                    key="dl_mes",
+                )
+            f_sell_sel, f_orig_sel = _meses_disponibles[mes_elegido]
+            pdfs_en_mes = len([f for f in os.listdir(f_sell_sel) if f.lower().endswith(".pdf")])
+            with col_info:
+                st.write("")
+                st.info(f"{pdfs_en_mes} PDFs en este mes")
+            with col_btn:
+                st.write("")
+                zip_data = zip_guias_mes(f_orig_sel, f_sell_sel)
+                if zip_data:
+                    st.download_button(
+                        label="📦 Descargar ZIP",
+                        data=zip_data,
+                        file_name=f"Guias_{mes_elegido.replace(' ', '_')}.zip",
+                        mime="application/zip",
+                        use_container_width=True,
+                    )
+                else:
+                    st.warning("No se pudo generar el ZIP.")
+
+        st.divider()
+
+        # ── Tabla completa ────────────────────────────────────────
         pdfs_disp = pdfs[["Guia", "OC_pdf", "Fecha_Traslado", "Mes", "Archivo"]].copy()
         pdfs_disp["Fecha_Traslado"] = pdfs_disp["Fecha_Traslado"].dt.strftime("%d/%m/%Y")
 

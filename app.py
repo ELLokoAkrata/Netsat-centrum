@@ -6,6 +6,8 @@ Secrets requeridos: SUPABASE_URL, SUPABASE_KEY, APP_PASSWORD
 """
 import streamlit as st
 import pandas as pd
+import io
+import zipfile
 from supabase import create_client, Client
 
 st.set_page_config(
@@ -167,17 +169,15 @@ with tab_guias:
     else:
         # Filtros
         col1, col2, col3 = st.columns(3)
-        meses_disp = ["Todos"] + sorted(df_arch["mes"].dropna().unique().tolist())
+        meses_disp = sorted(df_arch["mes"].dropna().unique().tolist())
         with col1:
-            f_mes = st.selectbox("Mes", meses_disp, key="g_mes")
+            f_mes = st.selectbox("Mes", meses_disp, index=len(meses_disp) - 1, key="g_mes")
         with col2:
             f_tipo = st.selectbox("Tipo", ["Todos", "Sellada", "Digital"], key="g_tipo")
         with col3:
             f_buscar = st.text_input("Buscar (número guía o nombre)", key="g_buscar")
 
-        df_f = df_arch.copy()
-        if f_mes != "Todos":
-            df_f = df_f[df_f["mes"] == f_mes]
+        df_f = df_arch[df_arch["mes"] == f_mes].copy()
         if f_tipo == "Sellada":
             df_f = df_f[df_f["bucket"].str.contains("selladas", na=False)]
         elif f_tipo == "Digital":
@@ -190,30 +190,61 @@ with tab_guias:
             df_f = df_f[mask]
 
         st.caption(f"{len(df_f)} archivos")
-        st.divider()
 
-        # Encabezado de columnas
-        h1, h2, h3, h4 = st.columns([4, 1, 1, 1])
-        h1.markdown("**Archivo**")
-        h2.markdown("**Mes**")
-        h3.markdown("**Tipo**")
-        h4.markdown("**Acción**")
-        st.divider()
+        # ── Descarga ZIP (acción principal) ──────────────────────
+        zip_key = f"zip_{f_mes}_{f_tipo}"
+        bc1, bc2 = st.columns([1, 1])
+        with bc1:
+            if zip_key in st.session_state:
+                def _limpiar_zip():
+                    st.session_state.pop(zip_key, None)
+                st.download_button(
+                    label="💾 Guardar ZIP",
+                    data=st.session_state[zip_key],
+                    file_name=f"Guias_{f_mes.replace(' ', '_')}_{f_tipo}.zip",
+                    mime="application/zip",
+                    key=f"dl_{zip_key}",
+                    on_click=_limpiar_zip,
+                    use_container_width=True,
+                )
+            else:
+                if st.button("📦 Descargar mes como ZIP", key=f"fetch_{zip_key}", use_container_width=True, disabled=df_f.empty):
+                    buf = io.BytesIO()
+                    with st.spinner(f"Preparando {len(df_f)} archivos..."):
+                        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                            for _, row in df_f.iterrows():
+                                try:
+                                    data = supabase.storage.from_(row["bucket"]).download(row["storage_path"])
+                                    zf.writestr(row["nombre"], data)
+                                except Exception:
+                                    pass
+                    buf.seek(0)
+                    st.session_state[zip_key] = buf.read()
+                    st.rerun()
 
-        for _, row in df_f.iterrows():
-            uid = str(row["id"])
-            tipo_label = "Sellada" if "selladas" in str(row.get("bucket", "")) else "Digital"
-            guia = row.get("guia_numero") or ""
+        # ── Archivos individuales (colapsado) ────────────────────
+        with st.expander(f"Ver archivos individuales ({len(df_f)})"):
+            h1, h2, h3, h4 = st.columns([4, 1, 1, 1])
+            h1.markdown("**Archivo**")
+            h2.markdown("**Mes**")
+            h3.markdown("**Tipo**")
+            h4.markdown("**Acción**")
+            st.divider()
 
-            c1, c2, c3, c4 = st.columns([4, 1, 1, 1])
-            with c1:
-                st.write(f"**{guia}** {row['nombre']}" if guia else row["nombre"])
-            with c2:
-                st.write(row.get("mes") or "")
-            with c3:
-                st.write(tipo_label)
-            with c4:
-                boton_descarga(row["bucket"], row["storage_path"], row["nombre"], uid)
+            for _, row in df_f.iterrows():
+                uid = str(row["id"])
+                tipo_label = "Sellada" if "selladas" in str(row.get("bucket", "")) else "Digital"
+                guia = row.get("guia_numero") or ""
+
+                c1, c2, c3, c4 = st.columns([4, 1, 1, 1])
+                with c1:
+                    st.write(f"**{guia}** {row['nombre']}" if guia else row["nombre"])
+                with c2:
+                    st.write(row.get("mes") or "")
+                with c3:
+                    st.write(tipo_label)
+                with c4:
+                    boton_descarga(row["bucket"], row["storage_path"], row["nombre"], uid)
 
         # Tabla de datos de guias
         df_guias = cargar_guias_db()
