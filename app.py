@@ -147,7 +147,7 @@ with tab_guias:
 
     @st.cache_data(ttl=300)
     def cargar_archivos():
-        r = supabase.table("archivos").select("*").order("nombre").execute()
+        r = supabase.table("archivos").select("*").order("guia_numero").order("bucket").execute()
         return pd.DataFrame(r.data) if r.data else pd.DataFrame()
 
     @st.cache_data(ttl=300)
@@ -173,7 +173,7 @@ with tab_guias:
         with col1:
             f_mes = st.selectbox("Mes", meses_disp, index=len(meses_disp) - 1, key="g_mes")
         with col2:
-            f_tipo = st.selectbox("Tipo", ["Todos", "Sellada", "Digital"], key="g_tipo")
+            f_tipo = st.selectbox("Tipo", ["Sellada", "Digital", "Todos"], key="g_tipo")
         with col3:
             f_buscar = st.text_input("Buscar (número guía o nombre)", key="g_buscar")
 
