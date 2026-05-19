@@ -267,44 +267,141 @@ with tab_guias:
             st.dataframe(df_g, width='stretch', hide_index=True)
 
 # ============================================================
-# TAB 3: OCs
+# TAB 3: OCs Antapaccay
 # ============================================================
 with tab_ocs:
-    st.header("Órdenes de Compra")
+    st.header("OCs Antapaccay 2026")
 
     @st.cache_data(ttl=300)
-    def cargar_ocs():
-        r = supabase.table("ocs").select("*").order("codigo_oc").execute()
+    def cargar_ocs_archivos():
+        r = (supabase.table("archivos")
+             .select("*")
+             .eq("tipo", "OC")
+             .order("nombre")
+             .execute())
+        return pd.DataFrame(r.data) if r.data else pd.DataFrame()
+
+    @st.cache_data(ttl=300)
+    def cargar_ocs_items():
+        r = (supabase.table("ocs")
+             .select("*")
+             .order("codigo_oc")
+             .order("item")
+             .execute())
         return pd.DataFrame(r.data) if r.data else pd.DataFrame()
 
     if st.button("Recargar datos", key="reload_ocs"):
-        cargar_ocs.clear()
+        cargar_ocs_archivos.clear()
+        cargar_ocs_items.clear()
         st.rerun()
 
-    df_ocs = cargar_ocs()
+    df_arch_oc = cargar_ocs_archivos()
 
-    if df_ocs.empty:
-        st.info("No hay OCs cargadas aún.")
+    if df_arch_oc.empty:
+        st.info("No hay OCs cargadas. Ejecutar sync_ocs.py.")
     else:
-        col1, col2 = st.columns(2)
+        # ── Filtros ──────────────────────────────────────────
+        col1, col2 = st.columns([1, 2])
         with col1:
-            f_oc = st.text_input("Buscar código OC", key="oc_cod")
+            meses_oc = sorted(df_arch_oc["mes"].dropna().unique().tolist())
+            f_mes = st.selectbox("Mes", meses_oc, index=len(meses_oc) - 1, key="oc_mes")
         with col2:
-            f_desc = st.text_input("Buscar descripción", key="oc_desc")
+            f_buscar = st.text_input("Buscar (código OC o nombre de archivo)", key="oc_buscar")
 
-        df_f = df_ocs.copy()
-        if f_oc:
-            df_f = df_f[df_f["codigo_oc"].str.contains(f_oc, case=False, na=False)]
-        if f_desc:
-            df_f = df_f[df_f["descripcion"].fillna("").str.contains(f_desc, case=False)]
+        df_f = df_arch_oc[df_arch_oc["mes"] == f_mes].copy()
+        if f_buscar:
+            df_f = df_f[df_f["nombre"].str.contains(f_buscar, case=False, na=False)]
 
-        cols = [c for c in [
-            "codigo_oc", "item", "descripcion", "cantidad",
-            "venta_unit_usd", "venta_total_usd", "observaciones"
-        ] if c in df_f.columns]
+        # Extraer código OC del storage_path: "ocs/antapaccay/C004248376/..."
+        def _codigo_de_path(path: str) -> str:
+            partes = str(path).split("/")
+            return partes[2] if len(partes) >= 3 else ""
 
-        st.caption(f"{len(df_f)} items")
-        st.dataframe(df_f[cols], width='stretch', hide_index=True)
+        df_f["codigo_oc"] = df_f["storage_path"].apply(_codigo_de_path)
+
+        st.caption(f"{len(df_f)} OCs en {f_mes}")
+
+        # ── Descarga ZIP ──────────────────────────────────────
+        zip_key = f"zip_ocs_{f_mes}"
+        if zip_key in st.session_state:
+            def _limpiar_zip_oc():
+                st.session_state.pop(zip_key, None)
+            st.download_button(
+                label="💾 Guardar ZIP",
+                data=st.session_state[zip_key],
+                file_name=f"OCs_Antapaccay_{f_mes}.zip",
+                mime="application/zip",
+                key=f"dl_{zip_key}",
+                on_click=_limpiar_zip_oc,
+                use_container_width=True,
+            )
+        else:
+            if st.button("📦 Descargar mes como ZIP", key=f"fetch_{zip_key}",
+                         use_container_width=True, disabled=df_f.empty):
+                buf = io.BytesIO()
+                with st.spinner(f"Preparando {len(df_f)} archivos..."):
+                    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                        for _, row in df_f.iterrows():
+                            try:
+                                data = supabase.storage.from_(row["bucket"]).download(row["storage_path"])
+                                zf.writestr(row["nombre"], data)
+                            except Exception:
+                                pass
+                buf.seek(0)
+                st.session_state[zip_key] = buf.read()
+                st.rerun()
+
+        # ── Archivos individuales ─────────────────────────────
+        with st.expander(f"Ver archivos individuales ({len(df_f)})"):
+            h1, h2, h3 = st.columns([5, 2, 1])
+            h1.markdown("**Archivo**")
+            h2.markdown("**Código OC**")
+            h3.markdown("**Acción**")
+            st.divider()
+
+            for _, row in df_f.iterrows():
+                uid = str(row["id"])
+                c1, c2, c3 = st.columns([5, 2, 1])
+                with c1:
+                    st.write(row["nombre"])
+                with c2:
+                    st.write(row["codigo_oc"])
+                with c3:
+                    boton_descarga(row["bucket"], row["storage_path"], row["nombre"], uid)
+
+        # ── Ítems de la OC seleccionada ───────────────────────
+        st.divider()
+        st.subheader("Ítems de la OC")
+
+        df_items = cargar_ocs_items()
+        codigos_con_items = (df_items["codigo_oc"].unique().tolist()
+                             if not df_items.empty else [])
+        codigos_del_mes = sorted(df_f["codigo_oc"].tolist())
+
+        if not codigos_del_mes:
+            st.info("No hay OCs en el mes seleccionado.")
+        else:
+            oc_sel = st.selectbox(
+                "Seleccionar OC para ver sus ítems",
+                options=codigos_del_mes,
+                key="oc_sel_items",
+            )
+
+            if oc_sel in codigos_con_items:
+                df_det = df_items[df_items["codigo_oc"] == oc_sel]
+                cols = [c for c in [
+                    "item", "descripcion", "cantidad",
+                    "venta_unit_usd", "venta_total_usd", "observaciones"
+                ] if c in df_det.columns]
+                total = pd.to_numeric(df_det["venta_total_usd"], errors="coerce").sum()
+                st.caption(f"{len(df_det)} ítems · Total: ${total:,.2f} USD")
+                st.dataframe(df_det[cols], width="stretch", hide_index=True)
+            else:
+                st.info(
+                    f"La OC **{oc_sel}** no tiene ítems registrados. "
+                    "Los datos de ítems provienen del Excel del padre "
+                    "y están disponibles para 31 de las 96 OCs."
+                )
 
 # ============================================================
 # TAB 4: Facturas
