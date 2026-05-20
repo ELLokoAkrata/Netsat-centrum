@@ -4,12 +4,14 @@ Detecta filas nuevas o modificadas en el Excel de Nelida y las sube a Supabase.
 Corre manualmente cuando se quiere sincronizar.
 
 Uso:
-    python sync_nelida.py
+    python sync_nelida.py            # sincroniza
+    python sync_nelida.py --dry-run  # solo muestra que subiria, sin subir
 """
 
 import os
 import re
 import sys
+import argparse
 import unicodedata
 from pathlib import Path
 from datetime import datetime
@@ -33,7 +35,7 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 # Rutas
 # ---------------------------------------------------------------------------
 NELIDA_PRIMARY = Path(r"C:\Users\herru\OneDrive\Escritorio\Drive-Compartido\CONTROL DE FACTURAS EMITIDAS NETSAT 2026-2025.xlsx")
-NELIDA_BACKUP  = Path(r"C:\Users\herru\OneDrive\Escritorio\Netsat-Centrum\CONTROL DE FACTURAS EMITIDAS NETSAT 2026-2025.xlsx")
+NELIDA_BACKUP  = Path(r"C:\Dev\Netsat-Centrum\CONTROL DE FACTURAS EMITIDAS NETSAT 2026-2025.xlsx")
 
 def _nelida_path() -> Path:
     try:
@@ -91,7 +93,7 @@ def fecha(val) -> str | None:
 # ---------------------------------------------------------------------------
 # Sincronizar tabla genérica
 # ---------------------------------------------------------------------------
-def _sync(tabla: str, rows: list[dict], clave: str, on_conflict: str):
+def _sync(tabla: str, rows: list[dict], clave: str, on_conflict: str, dry_run: bool = False):
     if not rows:
         print(f"  {tabla}: sin filas validas en el Excel")
         return
@@ -99,10 +101,18 @@ def _sync(tabla: str, rows: list[dict], clave: str, on_conflict: str):
     r = supabase.table(tabla).select(clave).execute()
     conocidos = {row[clave] for row in r.data}
 
-    nuevos    = [r for r in rows if r.get(clave) not in conocidos]
+    nuevos     = [r for r in rows if r.get(clave) not in conocidos]
     existentes = len(rows) - len(nuevos)
 
     print(f"  {tabla}: {len(rows)} en Excel | {existentes} ya en Supabase | {len(nuevos)} nuevos")
+
+    if dry_run:
+        if nuevos:
+            for r in nuevos:
+                print(f"    [DRY-RUN] + {r.get(clave)}")
+        else:
+            print(f"    Todo al dia")
+        return
 
     if rows:
         supabase.table(tabla).upsert(rows, on_conflict=on_conflict).execute()
@@ -115,7 +125,7 @@ def _sync(tabla: str, rows: list[dict], clave: str, on_conflict: str):
 # ---------------------------------------------------------------------------
 # Hojas del Excel
 # ---------------------------------------------------------------------------
-def sync_facturas(path: Path):
+def sync_facturas(path: Path, dry_run: bool = False):
     df = pd.read_excel(path, sheet_name="FACTURAS", header=0)
     df.columns = [str(c).strip() for c in df.columns]
 
@@ -158,9 +168,9 @@ def sync_facturas(path: Path):
             "observaciones":        txt(row[c_obs])    if c_obs else None,
         })
 
-    _sync("facturas", rows, "numero", "numero")
+    _sync("facturas", rows, "numero", "numero", dry_run=dry_run)
 
-def sync_guias(path: Path):
+def sync_guias(path: Path, dry_run: bool = False):
     df = pd.read_excel(path, sheet_name="GUIAS", header=0)
     df.columns = [str(c).strip() for c in df.columns]
 
@@ -191,9 +201,9 @@ def sync_guias(path: Path):
             "anio":          2026,
         })
 
-    _sync("guias", rows, "numero", "numero")
+    _sync("guias", rows, "numero", "numero", dry_run=dry_run)
 
-def sync_proyectos(path: Path):
+def sync_proyectos(path: Path, dry_run: bool = False):
     df_raw = pd.read_excel(path, sheet_name="PROY-2026", header=None)
     header_row = 0
     for i, row in df_raw.iterrows():
@@ -224,9 +234,9 @@ def sync_proyectos(path: Path):
             "anio":           2026,
         })
 
-    _sync("proyectos", rows, "codigo_oc", "codigo_oc")
+    _sync("proyectos", rows, "codigo_oc", "codigo_oc", dry_run=dry_run)
 
-def sync_coupa(path: Path):
+def sync_coupa(path: Path, dry_run: bool = False):
     df_raw = pd.read_excel(path, sheet_name="COUPA2026", header=None)
     header_row = 0
     for i, row in df_raw.iterrows():
@@ -257,14 +267,20 @@ def sync_coupa(path: Path):
             "anio":           2026,
         })
 
-    _sync("coupa", rows, "numero_factura", "numero_factura")
+    _sync("coupa", rows, "numero_factura", "numero_factura", dry_run=dry_run)
 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dry-run", action="store_true", help="Solo muestra que subiria, sin subir")
+    args = parser.parse_args()
+
     print("=" * 55)
     print("NETSAT - Sync Excel Nelida a Supabase")
+    if args.dry_run:
+        print("  MODO: dry-run (solo revision, sin cambios)")
     print(f"Inicio: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 55)
 
@@ -276,19 +292,19 @@ if __name__ == "__main__":
 
     if "FACTURAS" in xl.sheet_names:
         print("[1/4] FACTURAS")
-        sync_facturas(path)
+        sync_facturas(path, dry_run=args.dry_run)
 
     if "GUIAS" in xl.sheet_names:
         print("\n[2/4] GUIAS")
-        sync_guias(path)
+        sync_guias(path, dry_run=args.dry_run)
 
     if "PROY-2026" in xl.sheet_names:
         print("\n[3/4] PROYECTOS 2026")
-        sync_proyectos(path)
+        sync_proyectos(path, dry_run=args.dry_run)
 
     if "COUPA2026" in xl.sheet_names:
         print("\n[4/4] COUPA 2026")
-        sync_coupa(path)
+        sync_coupa(path, dry_run=args.dry_run)
 
     print()
     print(f"Fin: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")

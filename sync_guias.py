@@ -4,12 +4,14 @@ Detecta PDFs nuevos en las carpetas de guias y los sube a Supabase.
 Corre manualmente cuando se quiere sincronizar.
 
 Uso:
-    python sync_guias.py
+    python sync_guias.py            # sincroniza
+    python sync_guias.py --dry-run  # solo muestra que subiria, sin subir
 """
 
 import os
 import sys
 import re
+import argparse
 from pathlib import Path
 from datetime import datetime
 
@@ -31,7 +33,7 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 # Rutas
 # ---------------------------------------------------------------------------
 Z_BASE = Path(r"Z:\NETSAT\NETSAT 2026\FACTURAS GUIAS NETSAT SRL 2026\GUIAS 2026")
-LOCAL_BASE = Path(r"C:\Users\herru\OneDrive\Escritorio\Netsat-Centrum")
+LOCAL_BASE = Path(r"C:\Dev\Netsat-Centrum")
 
 def _base() -> Path:
     if Z_BASE.exists():
@@ -130,10 +132,11 @@ def subir_nuevo(item: dict) -> bool:
         print(f"    ERROR al subir {item['nombre']}: {e}")
         return False
 
-def sincronizar(conocidos: set[str], encontrados: list[dict]):
+def sincronizar(conocidos: set[str], encontrados: list[dict], dry_run: bool = False):
     nuevos = [item for item in encontrados if item["storage_path"] not in conocidos]
 
-    print(f"\n[3/3] Sincronizando...")
+    label = "[3/3] Revisando (dry-run)" if dry_run else "[3/3] Sincronizando..."
+    print(f"\n{label}")
     print(f"  Ya en Supabase:  {len(conocidos)}")
     print(f"  Encontrados:     {len(encontrados)}")
     print(f"  Nuevos a subir:  {len(nuevos)}")
@@ -143,6 +146,12 @@ def sincronizar(conocidos: set[str], encontrados: list[dict]):
         return
 
     print()
+    if dry_run:
+        for item in nuevos:
+            print(f"  [DRY-RUN] {item['mes']} [{item['tipo']}] {item['nombre']}")
+        print(f"\n  Nada subido (dry-run). Corre sin --dry-run para sincronizar.")
+        return
+
     ok = 0
     err = 0
     for item in nuevos:
@@ -159,15 +168,21 @@ def sincronizar(conocidos: set[str], encontrados: list[dict]):
 # Main
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dry-run", action="store_true", help="Solo muestra que subiria, sin subir")
+    args = parser.parse_args()
+
     print("=" * 55)
     print("NETSAT - Sincronizacion de guias a Supabase")
+    if args.dry_run:
+        print("  MODO: dry-run (solo revision, sin cambios)")
     print(f"Inicio: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 55)
 
     base = _base()
-    conocidos  = cargar_conocidos()
+    conocidos   = cargar_conocidos()
     encontrados = escanear_local(base)
-    sincronizar(conocidos, encontrados)
+    sincronizar(conocidos, encontrados, dry_run=args.dry_run)
 
     print()
     print(f"Fin: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
