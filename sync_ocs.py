@@ -4,8 +4,10 @@ Detecta carpetas de OC nuevas en Z:.../ANTAPACCAY 2026/ y las sube a Supabase.
 Por cada carpeta nueva: registra en tabla `ocs`, sube el PDF a Storage y lo registra en `archivos`.
 
 Uso:
-    python sync_ocs.py            # sincroniza
-    python sync_ocs.py --dry-run  # solo muestra que subiria, sin subir
+    python sync_ocs.py                      # sincroniza
+    python sync_ocs.py --dry-run            # solo muestra que subiria, sin subir
+    python sync_ocs.py --fix-proyectos      # limpia sufijos sucios en proyectos.codigo_oc
+    python sync_ocs.py --fix-proyectos --dry-run
 """
 
 import os
@@ -42,10 +44,19 @@ MESES = {
     5: "MAYO",  6: "JUNIO",   7: "JULIO", 8: "AGOSTO",
     9: "SEPTIEMBRE", 10: "OCTUBRE", 11: "NOVIEMBRE", 12: "DICIEMBRE"
 }
+MESES_RE = re.compile(r'\b(' + '|'.join(MESES.values()) + r')\b', re.IGNORECASE)
+
+# Sufijos sucios en proyectos.codigo_oc: -DIG, -2 DIG, -1 DIG, etc.
+SUFIJO_RE = re.compile(r'\s*-\s*\d*\s*DIG\b.*$', re.IGNORECASE)
 
 def _codigo_oc(nombre_carpeta: str) -> str | None:
     m = OC_RE.search(nombre_carpeta)
     return m.group(1) if m else None
+
+def _mes_desde_nombre(nombre: str) -> str | None:
+    """Extrae el nombre del mes desde el nombre de carpeta (ej. 'OC_C123_ENERO_...')."""
+    m = MESES_RE.search(nombre)
+    return m.group(1).upper() if m else None
 
 def _descripcion(nombre_carpeta: str) -> str | None:
     """Extrae la descripcion que viene despues del codigo OC en el nombre de carpeta."""
@@ -97,7 +108,13 @@ def escanear_local() -> list[dict]:
             pdfs = list(carpeta.glob("*.pdf"))
             pdf = pdfs[0] if pdfs else None
 
-        mes_nombre = MESES.get(datetime.fromtimestamp(carpeta.stat().st_mtime).month, "DESCONOCIDO")
+        mes_nombre = _mes_desde_nombre(carpeta.name)
+        if mes_nombre is None:
+            stat = carpeta.stat()
+            try:
+                mes_nombre = MESES.get(datetime.fromtimestamp(stat.st_ctime).month, "DESCONOCIDO")
+            except (OSError, ValueError):
+                mes_nombre = MESES.get(datetime.fromtimestamp(stat.st_mtime).month, "DESCONOCIDO")
 
         encontrados.append({
             "codigo_oc":    codigo,
@@ -138,6 +155,14 @@ def subir_oc(item: dict) -> bool:
             "anio":         2026,
             "subido_por":   "sync_ocs.py",
         }, on_conflict="storage_path").execute()
+
+        supabase.table("ocs_cabecera").upsert({
+            "codigo_oc":     item["codigo_oc"],
+            "mes":           item["mes"],
+            "anio":          2026,
+            "tiene_pdf":     True,
+            "observaciones": item["descripcion"],
+        }, on_conflict="codigo_oc").execute()
 
         return True
 
@@ -203,11 +228,50 @@ def sincronizar(conocidos: set[str], encontrados: list[dict], dry_run: bool = Fa
     print(f"\n  Resultado: {ok} subidas, {err} errores")
 
 # ---------------------------------------------------------------------------
+# Paso opcional: limpiar sufijos sucios en proyectos.codigo_oc
+# ---------------------------------------------------------------------------
+def fix_proyectos(dry_run: bool = False):
+    """Elimina sufijos -DIG, -2 DIG, -1 DIG, etc. de proyectos.codigo_oc en Supabase."""
+    print("\n[FIX-PROYECTOS] Limpiando sufijos sucios en proyectos.codigo_oc...")
+
+    r = supabase.table("proyectos").select("id, codigo_oc").execute()
+    dirty = [
+        (row["id"], row["codigo_oc"], SUFIJO_RE.sub("", row["codigo_oc"]).strip())
+        for row in r.data
+        if row.get("codigo_oc") and SUFIJO_RE.search(row["codigo_oc"])
+    ]
+
+    print(f"  Registros afectados: {len(dirty)}")
+    if not dirty:
+        print("  Todo limpio — no hay sufijos sucios.")
+        return
+
+    if dry_run:
+        for _, antes, despues in dirty:
+            print(f"  [DRY-RUN] {antes!r}  ->  {despues!r}")
+        print("\n  Nada modificado (dry-run). Corre sin --dry-run para aplicar.")
+        return
+
+    ok = 0
+    err = 0
+    for id_, antes, despues in dirty:
+        try:
+            supabase.table("proyectos").update({"codigo_oc": despues}).eq("id", id_).execute()
+            print(f"  {antes!r}  ->  {despues!r}")
+            ok += 1
+        except Exception as e:
+            print(f"  ERROR ({antes!r}): {e}")
+            err += 1
+
+    print(f"\n  Resultado: {ok} corregidos, {err} errores")
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dry-run", action="store_true", help="Solo muestra que subiria, sin subir")
+    parser.add_argument("--dry-run",        action="store_true", help="Solo muestra que subiria/cambiaria, sin modificar nada")
+    parser.add_argument("--fix-proyectos",  action="store_true", help="Limpia sufijos sucios (-DIG, etc.) en proyectos.codigo_oc")
     args = parser.parse_args()
 
     print("=" * 55)
@@ -217,11 +281,14 @@ if __name__ == "__main__":
     print(f"Inicio: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 55)
 
-    conocidos   = cargar_conocidos()
-    encontrados = escanear_local()
-    if not args.dry_run:
-        actualizar_mes(encontrados)
-    sincronizar(conocidos, encontrados, dry_run=args.dry_run)
+    if args.fix_proyectos:
+        fix_proyectos(dry_run=args.dry_run)
+    else:
+        conocidos   = cargar_conocidos()
+        encontrados = escanear_local()
+        if not args.dry_run:
+            actualizar_mes(encontrados)
+        sincronizar(conocidos, encontrados, dry_run=args.dry_run)
 
     print()
     print(f"Fin: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
