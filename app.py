@@ -230,7 +230,8 @@ with tab_guias:
         if f_buscar:
             mask = (
                 df_f["nombre"].str.contains(f_buscar, case=False, na=False) |
-                df_f["guia_numero"].fillna("").str.contains(f_buscar, case=False)
+                df_f["guia_numero"].fillna("").str.contains(f_buscar, case=False) |
+                df_f["oc_extraida"].fillna("").str.contains(f_buscar, case=False)
             )
             df_f = df_f[mask]
 
