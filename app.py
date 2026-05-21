@@ -250,10 +250,10 @@ with tab_guias:
                     mime="application/zip",
                     key=f"dl_{zip_key}",
                     on_click=_limpiar_zip,
-                    use_container_width=True,
+                    width="stretch",
                 )
             else:
-                if st.button("📦 Descargar mes como ZIP", key=f"fetch_{zip_key}", use_container_width=True, disabled=df_f.empty):
+                if st.button("📦 Descargar mes como ZIP", key=f"fetch_{zip_key}", width="stretch", disabled=df_f.empty):
                     buf = io.BytesIO()
                     with st.spinner(f"Preparando {len(df_f)} archivos..."):
                         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -369,11 +369,11 @@ with tab_ocs:
                 mime="application/zip",
                 key=f"dl_{zip_key}",
                 on_click=_limpiar_zip_oc,
-                use_container_width=True,
+                width="stretch",
             )
         else:
             if st.button("📦 Descargar mes como ZIP", key=f"fetch_{zip_key}",
-                         use_container_width=True, disabled=df_f.empty):
+                         width="stretch", disabled=df_f.empty):
                 buf = io.BytesIO()
                 with st.spinner(f"Preparando {len(df_f)} archivos..."):
                     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -486,7 +486,7 @@ with tab_despacho:
             "codigo_oc", "fecha_oc", "monto_total_usd", "estado_real",
             "total_guias", "primer_traslado", "ultimo_traslado", "guias",
         ] if c in df_f.columns]
-        st.dataframe(df_f[COLS_TABLA], hide_index=True, use_container_width=True)
+        st.dataframe(df_f[COLS_TABLA], hide_index=True, width="stretch")
 
         st.divider()
         st.subheader("Ítems de las OCs seleccionadas")
@@ -508,7 +508,7 @@ with tab_despacho:
                 st.caption(f"{len(df_items_f)} ítem(s) en {len(codigos_filtrados)} OC(s)")
                 st.dataframe(
                     df_items_f[COLS_ITEMS].sort_values(["fecha_entrega", "codigo_oc", "item"]),
-                    hide_index=True, use_container_width=True,
+                    hide_index=True, width="stretch",
                 )
 
 # ============================================================
