@@ -88,13 +88,32 @@ def boton_descarga(bucket: str, path: str, nombre: str, uid: str):
 # ---------------------------------------------------------------------------
 # Tabs principales
 # ---------------------------------------------------------------------------
-tab_doc, tab_guias, tab_ocs, tab_facturas, tab_nelida = st.tabs([
+tab_doc, tab_guias, tab_ocs, tab_despacho, tab_facturas, tab_nelida = st.tabs([
     "Documentación",
     "Guías",
     "OCs",
+    "Despacho",
     "Facturas",
     "Control Nélida",
 ])
+
+@st.cache_data(ttl=300)
+def cargar_ocs_items():
+    r = (supabase.table("ocs")
+         .select("*")
+         .order("codigo_oc")
+         .order("item")
+         .execute())
+    return pd.DataFrame(r.data) if r.data else pd.DataFrame()
+
+@st.cache_data(ttl=300)
+def cargar_despacho():
+    r = (supabase.table("ocs_despacho_v")
+         .select("*")
+         .order("mes")
+         .order("codigo_oc")
+         .execute())
+    return pd.DataFrame(r.data) if r.data else pd.DataFrame()
 
 # ============================================================
 # TAB 1: Documentacion
@@ -111,8 +130,9 @@ with tab_doc:
 
     | Pestaña | Qué contiene |
     |---------|-------------|
-    | **Guías** | Guías de remisión selladas y digitales — descargables por mes y tipo |
-    | **OCs** | Órdenes de compra internas con precios y cantidades |
+    | **Guías** | Guías de remisión selladas y digitales — descargables por mes y tipo o como ZIP |
+    | **OCs** | PDFs de órdenes de compra Antapaccay — descarga individual o ZIP por mes |
+    | **Despacho** | Estado de cada OC (pendiente / despachado) con guías vinculadas e ítems por entregar |
     | **Facturas** | Facturas emitidas con montos, estado de pago y referencias |
     | **Control Nélida** | Proyectos 2026 y estado COUPA de Antapaccay |
 
@@ -120,23 +140,48 @@ with tab_doc:
 
     ### Cómo descargar un archivo
 
-    1. Ve a la pestaña **Guías**
-    2. Usa los filtros para encontrar la guía (por mes, tipo o número)
-    3. Haz clic en **Descargar** — el sistema prepara el archivo
-    4. Cuando aparezca **Guardar archivo**, haz clic para guardarlo en tu equipo
+    1. Ve a la pestaña **Guías** u **OCs**
+    2. Selecciona el mes que necesitas
+    3. Haz clic en **Descargar mes como ZIP** para bajar todo el mes de una vez,
+       o expande la lista para descargar archivos individuales
+    4. Cuando aparezca **Guardar archivo** o **Guardar ZIP**, haz clic para guardarlo
 
-    > El proceso tiene dos pasos para garantizar que la descarga siempre funcione.
+    > La descarga tiene dos pasos para garantizar que siempre funcione.
+
+    ---
+
+    ### Cómo usar la pestaña Despacho
+
+    1. Selecciona el **mes** y el **estado** que quieres ver (por defecto muestra las pendientes)
+    2. La tabla superior muestra cada OC con su estado, guías vinculadas y fechas de traslado
+    3. La tabla inferior muestra todos los **ítems** de esas OCs ordenados por fecha de entrega —
+       los más urgentes aparecen primero
+    4. Cuando se sube una guía nueva, el estado se actualiza automáticamente
+
+    ---
+
+    ### Actualización de datos
+
+    Los datos se sincronizan manualmente desde la PC-Netsat. **Nadie más necesita hacer nada** —
+    el sistema se actualiza solo cuando Ricky corre la sincronización.
+
+    | Quién | Qué hace | Qué pasa automáticamente |
+    |-------|----------|--------------------------|
+    | **Héctor** | Sube PDFs de guías a la carpeta de red | Ricky sincroniza y aparecen en Guías y Despacho |
+    | **Nélida** | Actualiza su Excel de facturas | Ricky sincroniza y aparecen en Facturas y Control Nélida |
+    | **Ricardo (padre)** | Envía PDFs de OCs nuevas | Ricky los sube y aparecen en OCs y Despacho |
+    | **Ricky** | Corre la sincronización | Todo lo demás se actualiza solo |
 
     ---
 
     ### Usuarios del sistema
 
-    | Usuario | Equipo | Rol |
-    |---------|--------|-----|
-    | Ricardo Junior | Laptop / RDP | Desarrollo y administración |
-    | Héctor | PC-Netsat | Sube guías y documentos |
-    | Ricardo (padre) | Laptop | Consulta y descarga |
-    | Nélida | PC propia | Control de facturas |
+    | Usuario | Rol |
+    |---------|-----|
+    | **Ricky** | Desarrollo, sincronización y administración |
+    | **Héctor** | Sube guías al servidor — no necesita hacer nada más |
+    | **Ricardo (padre)** | Consulta OCs y estado de despacho |
+    | **Nélida** | Mantiene su Excel — los datos llegan solos a la app |
     """)
 
 # ============================================================
@@ -281,15 +326,6 @@ with tab_ocs:
              .execute())
         return pd.DataFrame(r.data) if r.data else pd.DataFrame()
 
-    @st.cache_data(ttl=300)
-    def cargar_ocs_items():
-        r = (supabase.table("ocs")
-             .select("*")
-             .order("codigo_oc")
-             .order("item")
-             .execute())
-        return pd.DataFrame(r.data) if r.data else pd.DataFrame()
-
     if st.button("Recargar datos", key="reload_ocs"):
         cargar_ocs_archivos.clear()
         cargar_ocs_items.clear()
@@ -404,7 +440,79 @@ with tab_ocs:
                 )
 
 # ============================================================
-# TAB 4: Facturas
+# TAB 4: Despacho
+# ============================================================
+with tab_despacho:
+    st.header("Despacho OCs Antapaccay 2026")
+
+    if st.button("Recargar datos", key="reload_despacho"):
+        cargar_despacho.clear()
+        cargar_ocs_items.clear()
+        st.rerun()
+
+    df_desp = cargar_despacho()
+
+    if df_desp.empty:
+        st.info("Sin datos en ocs_despacho_v. Verificar que la vista existe en Supabase.")
+    else:
+        ESTADOS = ["PENDIENTE", "DESPACHADO", "PARCIAL", "COMPLETO"]
+
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            meses_disp = sorted(df_desp["mes"].dropna().unique().tolist())
+            f_mes_d = st.selectbox("Mes", meses_disp,
+                                   index=len(meses_disp) - 1, key="desp_mes")
+        with col2:
+            f_estados = st.multiselect("Estado", ESTADOS,
+                                       default=["PENDIENTE"], key="desp_estado")
+
+        df_f = df_desp[df_desp["mes"] == f_mes_d].copy()
+        if f_estados:
+            df_f = df_f[df_f["estado_real"].isin(f_estados)]
+
+        n_pend  = (df_f["estado_real"] == "PENDIENTE").sum()
+        n_desp  = (df_f["estado_real"] == "DESPACHADO").sum()
+        n_otros = (df_f["estado_real"].isin(["PARCIAL", "COMPLETO"])).sum()
+
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Total OCs", len(df_f))
+        col2.metric("Pendiente",      n_pend)
+        col3.metric("Despachado",     n_desp)
+        col4.metric("Parcial/Completo", n_otros)
+
+        st.caption(f"{len(df_f)} OC(s)")
+
+        COLS_TABLA = [c for c in [
+            "codigo_oc", "fecha_oc", "monto_total_usd", "estado_real",
+            "total_guias", "primer_traslado", "ultimo_traslado", "guias",
+        ] if c in df_f.columns]
+        st.dataframe(df_f[COLS_TABLA], hide_index=True, use_container_width=True)
+
+        st.divider()
+        st.subheader("Ítems de las OCs seleccionadas")
+
+        df_items_all = cargar_ocs_items()
+        codigos_filtrados = df_f["codigo_oc"].dropna().unique().tolist()
+
+        if df_items_all.empty or not codigos_filtrados:
+            st.info("No hay ítems registrados para las OCs seleccionadas.")
+        else:
+            df_items_f = df_items_all[df_items_all["codigo_oc"].isin(codigos_filtrados)].copy()
+            if df_items_f.empty:
+                st.info("Las OCs seleccionadas no tienen ítems registrados.")
+            else:
+                COLS_ITEMS = [c for c in [
+                    "codigo_oc", "item", "descripcion", "codigo_material",
+                    "cantidad", "unidad", "fecha_entrega",
+                ] if c in df_items_f.columns]
+                st.caption(f"{len(df_items_f)} ítem(s) en {len(codigos_filtrados)} OC(s)")
+                st.dataframe(
+                    df_items_f[COLS_ITEMS].sort_values(["fecha_entrega", "codigo_oc", "item"]),
+                    hide_index=True, use_container_width=True,
+                )
+
+# ============================================================
+# TAB 5: Facturas
 # ============================================================
 with tab_facturas:
     st.header("Facturas Emitidas")
