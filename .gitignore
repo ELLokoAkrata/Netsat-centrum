@@ -19,9 +19,12 @@ sugerencias_*.xlsx
 *.png
 *.jpg
 
-# PDFs de guías (datos internos, viven en Z: y Supabase)
+# PDFs de guías y OCs (datos internos, viven en Z: y Supabase)
 GUIAS */
 GUIAS*/
+tmp_ocs/
+tmp_guias/
+*.pdf
 
 # Excel con datos operativos internos
 *.xlsx
