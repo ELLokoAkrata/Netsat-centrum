@@ -218,7 +218,7 @@ with tab_guias:
         with col1:
             f_mes = st.selectbox("Mes", meses_disp, index=len(meses_disp) - 1, key="g_mes")
         with col2:
-            f_tipo = st.selectbox("Tipo", ["Sellada", "Digital", "Todos"], key="g_tipo")
+            f_tipo = st.selectbox("Tipo", ["Todos", "Sellada", "Digital"], key="g_tipo")
         with col3:
             f_buscar = st.text_input("Buscar (número guía o nombre)", key="g_buscar")
 
@@ -426,14 +426,19 @@ with tab_ocs:
             )
 
             if oc_sel in codigos_con_items:
-                df_det = df_items[df_items["codigo_oc"] == oc_sel]
+                df_det = df_items[df_items["codigo_oc"] == oc_sel].copy()
+                df_det["modelo_display"] = df_det["modelo"].fillna("").where(
+                    df_det["modelo"].fillna("") != "",
+                    other="No se pudo encontrar el modelo, consultar en la misma OC"
+                )
                 cols = [c for c in [
-                    "item", "descripcion", "cantidad",
-                    "venta_unit_usd", "venta_total_usd", "observaciones"
+                    "item", "modelo_display", "cantidad", "unidad",
+                    "venta_unit_usd", "venta_total_usd",
                 ] if c in df_det.columns]
                 total = pd.to_numeric(df_det["venta_total_usd"], errors="coerce").sum()
                 st.caption(f"{len(df_det)} ítems · Total: ${total:,.2f} USD")
-                st.dataframe(df_det[cols], width="stretch", hide_index=True)
+                st.dataframe(df_det[cols], width="stretch", hide_index=True,
+                             column_config={"modelo_display": st.column_config.TextColumn("Modelo")})
             else:
                 st.info(
                     f"La OC **{oc_sel}** no tiene ítems registrados. "
@@ -503,14 +508,20 @@ with tab_despacho:
             if df_items_f.empty:
                 st.info("Las OCs seleccionadas no tienen ítems registrados.")
             else:
+                df_items_f = df_items_f.copy()
+                df_items_f["modelo_display"] = df_items_f["modelo"].fillna("").where(
+                    df_items_f["modelo"].fillna("") != "",
+                    other="No se pudo encontrar el modelo, consultar en la misma OC"
+                )
                 COLS_ITEMS = [c for c in [
-                    "codigo_oc", "item", "descripcion", "codigo_material",
+                    "codigo_oc", "item", "modelo_display", "codigo_material",
                     "cantidad", "unidad", "fecha_entrega",
                 ] if c in df_items_f.columns]
                 st.caption(f"{len(df_items_f)} ítem(s) en {len(codigos_filtrados)} OC(s)")
                 st.dataframe(
                     df_items_f[COLS_ITEMS].sort_values(["fecha_entrega", "codigo_oc", "item"]),
                     hide_index=True, width="stretch",
+                    column_config={"modelo_display": st.column_config.TextColumn("Modelo")},
                 )
 
 # ============================================================

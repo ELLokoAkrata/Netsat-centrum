@@ -11,12 +11,14 @@ Uso:
 import os
 import sys
 import re
+import io
 import argparse
 from pathlib import Path
 from datetime import datetime
 
 from dotenv import load_dotenv
 from supabase import create_client, Client
+import pdfplumber
 
 load_dotenv()
 
@@ -52,11 +54,47 @@ GUIAS_FOLDERS = [
     ("GUIAS JUNIO 2026/GUIAS SELLADAS JUNIO 2026",                   "GUIAS JUNIO 2026",   "JUNIO"),
 ]
 
-NUMERO_RE = re.compile(r"T001-(\d+)", re.IGNORECASE)
+NUMERO_RE         = re.compile(r"T001-(\d+)", re.IGNORECASE)
+RE_FECHA_EMISION  = re.compile(r"Fecha\s+de\s+Emisi[oó]n[:\s]+(\d{2}/\d{2}/\d{4})", re.IGNORECASE)
+RE_FECHA_TRASLADO = re.compile(r"Fecha\s+del?\s+Traslado[:\s]+(\d{2}/\d{2}/\d{4})", re.IGNORECASE)
+RE_OC_TEXTO       = re.compile(r"(?:Orden de Compra|N[°º]\s*O\.?C\.?)[^:]*[:\s]+(C\d{7,})", re.IGNORECASE)
+RE_OC_NOMBRE      = re.compile(r"OC_(C\d+)", re.IGNORECASE)
 
 def extraer_numero(nombre: str) -> str | None:
     m = NUMERO_RE.search(nombre)
     return f"T001-{m.group(1)}" if m else None
+
+def _parsear_fecha(texto: str, patron: re.Pattern) -> str | None:
+    m = patron.search(texto)
+    if not m:
+        return None
+    try:
+        return datetime.strptime(m.group(1), "%d/%m/%Y").strftime("%Y-%m-%d")
+    except ValueError:
+        return None
+
+def extraer_metadata_pdf(data: bytes, nombre: str) -> dict:
+    """Extrae fecha_emision, fecha_traslado y oc_extraida de un PDF digital."""
+    try:
+        with pdfplumber.open(io.BytesIO(data)) as pdf:
+            texto = "\n".join(p.extract_text() or "" for p in pdf.pages)
+    except Exception:
+        return {}
+
+    oc = None
+    m_oc = RE_OC_TEXTO.search(texto)
+    if m_oc:
+        oc = m_oc.group(1)
+    else:
+        m_oc2 = RE_OC_NOMBRE.search(nombre)
+        if m_oc2:
+            oc = m_oc2.group(1)
+
+    return {
+        "fecha_emision":  _parsear_fecha(texto, RE_FECHA_EMISION),
+        "fecha_traslado": _parsear_fecha(texto, RE_FECHA_TRASLADO),
+        "oc_extraida":    oc,
+    }
 
 # ---------------------------------------------------------------------------
 # Paso 1: leer lo que ya esta en Supabase
@@ -116,7 +154,8 @@ def subir_nuevo(item: dict) -> bool:
             file=data,
             file_options={"content-type": "application/pdf", "upsert": "true"},
         )
-        supabase.table("archivos").upsert({
+
+        registro = {
             "nombre":       item["nombre"],
             "bucket":       item["bucket"],
             "storage_path": item["storage_path"],
@@ -125,7 +164,12 @@ def subir_nuevo(item: dict) -> bool:
             "anio":         2026,
             "guia_numero":  item["guia_numero"],
             "subido_por":   "sync_guias.py",
-        }, on_conflict="storage_path").execute()
+        }
+
+        if item["tipo"] == "digital":
+            registro.update(extraer_metadata_pdf(data, item["nombre"]))
+
+        supabase.table("archivos").upsert(registro, on_conflict="storage_path").execute()
         return True
 
     except Exception as e:
@@ -163,6 +207,13 @@ def sincronizar(conocidos: set[str], encontrados: list[dict], dry_run: bool = Fa
             err += 1
 
     print(f"\n  Resultado: {ok} subidos, {err} errores")
+
+    if ok > 0:
+        try:
+            supabase.rpc("actualizar_estado_ocs").execute()
+            print("  Estado de OCs actualizado.")
+        except Exception as e:
+            print(f"  AVISO: no se pudo actualizar estado de OCs: {e}")
 
 # ---------------------------------------------------------------------------
 # Main
