@@ -278,7 +278,7 @@ with tab_guias:
             st.divider()
 
             for _, row in df_f.iterrows():
-                uid = str(row["id"])
+                uid = f"g_{row['id']}"
                 tipo_label = "Sellada" if "selladas" in str(row.get("bucket", "")) else "Digital"
                 guia = row.get("guia_numero") or ""
 
@@ -397,7 +397,7 @@ with tab_ocs:
             st.divider()
 
             for _, row in df_f.iterrows():
-                uid = str(row["id"])
+                uid = f"oc_{row['id']}"
                 c1, c2, c3 = st.columns([5, 2, 1])
                 with c1:
                     st.write(row["nombre"])
