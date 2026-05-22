@@ -267,8 +267,9 @@ def _confianza_match(oc_tokens: set, item_tokens: set) -> str | None:
     interseccion = oc_tokens & item_tokens
     if not interseccion:
         return None
-    # Alta confianza: el token compartido tiene 7+ caracteres (ej. MIC-7522-Z30W)
-    if any(len(t) >= 7 for t in interseccion):
+    # Alta confianza: token ≥7 chars Y contiene al menos un dígito
+    # (part numbers reales siempre tienen dígito; palabras genéricas como BATERIA no)
+    if any(len(t) >= 7 and any(c.isdigit() for c in t) for t in interseccion):
         return "AUTO_ALTA"
     return "AUTO_BAJA"
 
