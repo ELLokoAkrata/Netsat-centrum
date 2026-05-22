@@ -88,11 +88,12 @@ def boton_descarga(bucket: str, path: str, nombre: str, uid: str):
 # ---------------------------------------------------------------------------
 # Tabs principales
 # ---------------------------------------------------------------------------
-tab_doc, tab_guias, tab_ocs, tab_despacho, tab_facturas, tab_nelida = st.tabs([
+tab_doc, tab_guias, tab_ocs, tab_despacho, tab_compras, tab_facturas, tab_nelida = st.tabs([
     "Documentación",
     "Guías",
     "OCs",
     "Despacho",
+    "Compras",
     "Facturas",
     "Control Nélida",
 ])
@@ -115,6 +116,61 @@ def cargar_despacho():
          .execute())
     return pd.DataFrame(r.data) if r.data else pd.DataFrame()
 
+@st.cache_data(ttl=300)
+def cargar_compras():
+    r_ocs = supabase.table("ocs").select(
+        "codigo_oc, item, descripcion, codigo_material, modelo, observaciones"
+    ).order("codigo_oc").order("item").execute()
+    df_ocs = pd.DataFrame(r_ocs.data) if r_ocs.data else pd.DataFrame()
+    if df_ocs.empty:
+        return df_ocs
+
+    r_links = supabase.table("oc_compras_link").select(
+        "codigo_oc, item, factura_id, factura_item_id, confianza"
+    ).execute()
+    df_links = pd.DataFrame(r_links.data) if r_links.data else pd.DataFrame()
+
+    r_fi = supabase.table("facturas_proveedores_items").select(
+        "id, factura_id, descripcion, seller_code, precio_unitario"
+    ).execute()
+    df_fi = pd.DataFrame(r_fi.data) if r_fi.data else pd.DataFrame()
+    if not df_fi.empty:
+        df_fi = df_fi.rename(columns={"id": "factura_item_id", "descripcion": "desc_compra"})
+
+    r_fp = supabase.table("facturas_proveedores").select(
+        "id, nombre_proveedor, nro_factura, moneda, fecha"
+    ).execute()
+    df_fp = pd.DataFrame(r_fp.data) if r_fp.data else pd.DataFrame()
+    if not df_fp.empty:
+        df_fp = df_fp.rename(columns={"id": "factura_id"})
+
+    if df_links.empty or df_fi.empty:
+        return df_ocs
+
+    df_match = df_links.merge(
+        df_fi[["factura_item_id", "desc_compra", "seller_code", "precio_unitario"]],
+        on="factura_item_id", how="left"
+    )
+    if not df_fp.empty:
+        df_match = df_match.merge(
+            df_fp[["factura_id", "nombre_proveedor", "nro_factura", "moneda", "fecha"]],
+            on="factura_id", how="left"
+        )
+
+    # Por cada (codigo_oc, item): preferir AUTO_ALTA sobre AUTO_BAJA
+    order_conf = {"AUTO_ALTA": 0, "AUTO_BAJA": 1}
+    df_match["_ord"] = df_match["confianza"].map(order_conf).fillna(2)
+    df_best = (df_match.sort_values("_ord")
+               .drop_duplicates(subset=["codigo_oc", "item"], keep="first")
+               .drop(columns="_ord"))
+
+    keep = [c for c in [
+        "codigo_oc", "item", "confianza", "nombre_proveedor", "nro_factura",
+        "moneda", "fecha", "seller_code", "desc_compra", "precio_unitario",
+    ] if c in df_best.columns]
+
+    return df_ocs.merge(df_best[keep], on=["codigo_oc", "item"], how="left")
+
 # ============================================================
 # TAB 1: Documentacion
 # ============================================================
@@ -133,6 +189,7 @@ with tab_doc:
     | **Guías** | Guías de remisión selladas y digitales — descargables por mes y tipo o como ZIP |
     | **OCs** | PDFs de órdenes de compra Antapaccay — descarga individual o ZIP por mes |
     | **Despacho** | Estado de cada OC (pendiente / despachado) con guías vinculadas e ítems por entregar |
+    | **Compras** | Cruce entre OCs de Antapaccay y facturas de proveedores — muestra qué se identificó en compra |
     | **Facturas** | Facturas emitidas con montos, estado de pago y referencias |
     | **Control Nélida** | Proyectos 2026 y estado COUPA de Antapaccay |
 
@@ -525,7 +582,90 @@ with tab_despacho:
                 )
 
 # ============================================================
-# TAB 5: Facturas
+# TAB 5: Compras — cruce OC con facturas de proveedores
+# ============================================================
+with tab_compras:
+    st.header("Compras — Cruce OC con Proveedores")
+
+    if st.button("Recargar datos", key="reload_compras"):
+        cargar_compras.clear()
+        st.rerun()
+
+    df_comp = cargar_compras()
+
+    if df_comp.empty:
+        st.info("No hay datos de OCs registrados.")
+    else:
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            f_oc_c = st.text_input("Buscar OC", key="comp_oc")
+        with col2:
+            f_match = st.selectbox(
+                "Identificacion en compra",
+                ["Todos", "Alta confianza", "Baja confianza", "Sin identificar"],
+                key="comp_match",
+            )
+        with col3:
+            f_prov = st.text_input("Proveedor", key="comp_prov")
+
+        df_f = df_comp.copy()
+        if f_oc_c:
+            df_f = df_f[df_f["codigo_oc"].str.contains(f_oc_c, case=False, na=False)]
+        if "confianza" in df_f.columns:
+            if f_match == "Alta confianza":
+                df_f = df_f[df_f["confianza"] == "AUTO_ALTA"]
+            elif f_match == "Baja confianza":
+                df_f = df_f[df_f["confianza"] == "AUTO_BAJA"]
+            elif f_match == "Sin identificar":
+                df_f = df_f[df_f["confianza"].isna()]
+        if f_prov and "nombre_proveedor" in df_f.columns:
+            df_f = df_f[df_f["nombre_proveedor"].fillna("").str.contains(f_prov, case=False)]
+
+        n_alta = (df_f["confianza"] == "AUTO_ALTA").sum() if "confianza" in df_f.columns else 0
+        n_baja = (df_f["confianza"] == "AUTO_BAJA").sum() if "confianza" in df_f.columns else 0
+        n_sin  = df_f["confianza"].isna().sum() if "confianza" in df_f.columns else len(df_f)
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total items", len(df_f))
+        c2.metric("Identificado (alta)", n_alta)
+        c3.metric("Identificado (baja)", n_baja)
+        c4.metric("Sin identificar", n_sin)
+
+        st.caption(
+            "Columnas de la OC: **OC · Item · Descripcion · Cod. Material** — "
+            "Compra identificada: **Proveedor · Nro Factura · Cod. Proveedor · Desc Compra**"
+        )
+
+        COLS_COMP = [c for c in [
+            "codigo_oc", "item",
+            "descripcion", "codigo_material",
+            "confianza", "nombre_proveedor", "nro_factura", "fecha",
+            "seller_code", "desc_compra", "precio_unitario",
+            "observaciones",
+        ] if c in df_f.columns]
+
+        st.dataframe(
+            df_f[COLS_COMP].sort_values(["codigo_oc", "item"]),
+            hide_index=True,
+            width="stretch",
+            column_config={
+                "codigo_oc":        st.column_config.TextColumn("OC"),
+                "item":             st.column_config.NumberColumn("Item", format="%d"),
+                "descripcion":      st.column_config.TextColumn("Descripcion (OC)"),
+                "codigo_material":  st.column_config.TextColumn("Cod. Material"),
+                "confianza":        st.column_config.TextColumn("Confianza"),
+                "nombre_proveedor": st.column_config.TextColumn("Proveedor"),
+                "nro_factura":      st.column_config.TextColumn("Nro Factura"),
+                "fecha":            st.column_config.TextColumn("Fecha Factura"),
+                "seller_code":      st.column_config.TextColumn("Cod. Proveedor"),
+                "desc_compra":      st.column_config.TextColumn("Desc Compra"),
+                "precio_unitario":  st.column_config.NumberColumn("P.Unit USD", format="$%.2f"),
+                "observaciones":    st.column_config.TextColumn("Observaciones"),
+            },
+        )
+
+# ============================================================
+# TAB 6: Facturas
 # ============================================================
 with tab_facturas:
     st.header("Facturas Emitidas")
@@ -586,7 +726,7 @@ with tab_facturas:
         st.dataframe(df_f[cols], width='stretch', hide_index=True)
 
 # ============================================================
-# TAB 5: Control Nelida
+# TAB 7: Control Nelida
 # ============================================================
 with tab_nelida:
     st.header("Control Nélida")
