@@ -59,6 +59,7 @@ RE_FECHA_EMISION  = re.compile(r"Fecha\s+de\s+Emisi[oó]n[:\s]+(\d{2}/\d{2}/\d{4
 RE_FECHA_TRASLADO = re.compile(r"Fecha\s+del?\s+Traslado[:\s]+(\d{2}/\d{2}/\d{4})", re.IGNORECASE)
 RE_OC_TEXTO       = re.compile(r"(?:Orden de Compra|N[°º]\s*O\.?C\.?)[^:]*[:\s]+(C\d{7,})", re.IGNORECASE)
 RE_OC_NOMBRE      = re.compile(r"OC_(C\d+)", re.IGNORECASE)
+RE_OC_SELLADA     = re.compile(r"(?:OC|CO)_(C\d+)", re.IGNORECASE)
 
 def extraer_numero(nombre: str) -> str | None:
     m = NUMERO_RE.search(nombre)
@@ -168,6 +169,10 @@ def subir_nuevo(item: dict) -> bool:
 
         if item["tipo"] == "digital":
             registro.update(extraer_metadata_pdf(data, item["nombre"]))
+        else:
+            m_s = RE_OC_SELLADA.search(item["nombre"])
+            if m_s:
+                registro["oc_extraida"] = m_s.group(1)
 
         supabase.table("archivos").upsert(registro, on_conflict="storage_path").execute()
         return True

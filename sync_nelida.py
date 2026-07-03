@@ -49,6 +49,9 @@ def _nelida_path() -> Path:
     print("ERROR: no se encontro el archivo de Nelida")
     sys.exit(1)
 
+# Sufijos sucios en proyectos.codigo_oc: -DIG, -2 DIG, -1 DIG, etc.
+SUFIJO_RE = re.compile(r'\s*-\s*\d*\s*DIG\b.*$', re.IGNORECASE)
+
 # ---------------------------------------------------------------------------
 # Helpers de limpieza
 # ---------------------------------------------------------------------------
@@ -225,6 +228,7 @@ def sync_proyectos(path: Path, dry_run: bool = False):
         oc = txt(row[c_oc]) if c_oc else None
         if not oc:
             continue
+        oc = SUFIJO_RE.sub("", oc).strip()
         rows.append({
             "codigo_oc":      oc,
             "factura_venta":  txt(row[c_fvta]) if c_fvta else None,

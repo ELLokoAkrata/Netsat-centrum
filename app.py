@@ -88,11 +88,12 @@ def boton_descarga(bucket: str, path: str, nombre: str, uid: str):
 # ---------------------------------------------------------------------------
 # Tabs principales
 # ---------------------------------------------------------------------------
-tab_doc, tab_guias, tab_ocs, tab_despacho, tab_compras, tab_facturas, tab_nelida = st.tabs([
+tab_doc, tab_guias, tab_ocs, tab_despacho, tab_buscar, tab_compras, tab_facturas, tab_nelida = st.tabs([
     "Documentación",
     "Guías",
     "OCs",
     "Despacho",
+    "Buscar",
     "Compras",
     "Facturas",
     "Control Nélida",
@@ -171,6 +172,82 @@ def cargar_compras():
 
     return df_ocs.merge(df_best[keep], on=["codigo_oc", "item"], how="left")
 
+@st.cache_data(ttl=300)
+def cargar_busqueda():
+    r_ocs = supabase.table("ocs").select(
+        "codigo_oc, item, descripcion, codigo_material, modelo, observaciones, cantidad"
+    ).order("codigo_oc").order("item").execute()
+    df = pd.DataFrame(r_ocs.data) if r_ocs.data else pd.DataFrame()
+    if df.empty:
+        return df
+
+    r_arch = supabase.table("archivos").select(
+        "nombre, oc_extraida, fecha_traslado, fecha_emision, guia_numero, mes"
+    ).not_.is_("oc_extraida", "null").order("fecha_traslado", desc=True).execute()
+    df_arch = pd.DataFrame(r_arch.data) if r_arch.data else pd.DataFrame()
+
+    if not df_arch.empty:
+        def _fmt_guias(g):
+            pares = sorted(set(
+                f"{n} ({t})" if pd.notna(t) else str(n)
+                for n, t in zip(
+                    g["guia_numero"].fillna("?").astype(str),
+                    g["fecha_traslado"].fillna("").astype(str)
+                )
+            ))
+            return ", ".join(pares)
+
+        g_agg = df_arch.groupby("oc_extraida").apply(_fmt_guias).reset_index(name="guias")
+        g_agg = g_agg.rename(columns={"oc_extraida": "codigo_oc"})
+        df = df.merge(g_agg, on="codigo_oc", how="left")
+    else:
+        df["guias"] = None
+
+    r_links = supabase.table("oc_compras_link").select(
+        "codigo_oc, item, factura_id, factura_item_id, confianza"
+    ).execute()
+    df_links = pd.DataFrame(r_links.data) if r_links.data else pd.DataFrame()
+
+    r_fi = supabase.table("facturas_proveedores_items").select(
+        "id, factura_id, descripcion, seller_code, precio_unitario"
+    ).execute()
+    df_fi = pd.DataFrame(r_fi.data) if r_fi.data else pd.DataFrame()
+    if not df_fi.empty:
+        df_fi = df_fi.rename(columns={"id": "factura_item_id", "descripcion": "desc_compra"})
+
+    r_fp = supabase.table("facturas_proveedores").select(
+        "id, nombre_proveedor, nro_factura, moneda, fecha"
+    ).execute()
+    df_fp = pd.DataFrame(r_fp.data) if r_fp.data else pd.DataFrame()
+    if not df_fp.empty:
+        df_fp = df_fp.rename(columns={"id": "factura_id"})
+
+    if not df_links.empty and not df_fi.empty:
+        df_match = df_links.merge(
+            df_fi[["factura_item_id", "desc_compra", "seller_code", "precio_unitario"]],
+            on="factura_item_id", how="left"
+        )
+        if not df_fp.empty:
+            df_match = df_match.merge(
+                df_fp[["factura_id", "nombre_proveedor", "nro_factura", "moneda", "fecha"]],
+                on="factura_id", how="left"
+            )
+
+        order_conf = {"AUTO_ALTA": 0, "AUTO_BAJA": 1}
+        df_match["_ord"] = df_match["confianza"].map(order_conf).fillna(2)
+        df_best = (df_match.sort_values("_ord")
+                   .drop_duplicates(subset=["codigo_oc", "item"], keep="first")
+                   .drop(columns="_ord"))
+
+        keep = [c for c in [
+            "codigo_oc", "item", "confianza", "nombre_proveedor", "nro_factura",
+            "moneda", "fecha", "seller_code", "desc_compra", "precio_unitario",
+        ] if c in df_best.columns]
+
+        df = df.merge(df_best[keep], on=["codigo_oc", "item"], how="left")
+
+    return df
+
 # ============================================================
 # TAB 1: Documentacion
 # ============================================================
@@ -189,6 +266,7 @@ with tab_doc:
     | **Guías** | Guías de remisión selladas y digitales — descargables por mes y tipo o como ZIP |
     | **OCs** | PDFs de órdenes de compra Antapaccay — descarga individual o ZIP por mes |
     | **Despacho** | Estado de cada OC (pendiente / despachado) con guías vinculadas e ítems por entregar |
+    | **Buscar** | Buscador de productos por descripcion, modelo o codigo — encuentra la OC, sus guias y el proveedor |
     | **Compras** | Cruce entre OCs de Antapaccay y facturas de proveedores — muestra qué se identificó en compra |
     | **Facturas** | Facturas emitidas con montos, estado de pago y referencias |
     | **Control Nélida** | Proyectos 2026 y estado COUPA de Antapaccay |
@@ -581,8 +659,72 @@ with tab_despacho:
                     column_config={"modelo_display": st.column_config.TextColumn("Modelo")},
                 )
 
+
 # ============================================================
-# TAB 5: Compras — cruce OC con facturas de proveedores
+# TAB 5: Buscar — producto, OC, guias
+# ============================================================
+with tab_buscar:
+    st.header("Buscar Producto")
+
+    @st.cache_data(ttl=300)
+    def cargar_busqueda_data():
+        return cargar_busqueda()
+
+    if st.button("Recargar datos", key="reload_buscar"):
+        cargar_busqueda_data.clear()
+        st.rerun()
+
+    df_b = cargar_busqueda_data()
+
+    if df_b.empty:
+        st.info("No hay datos de OCs registrados.")
+    else:
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            q = st.text_input("Buscar por descripcion, modelo, codigo, proveedor, OC o guia", key="buscar_q")
+        with col2:
+            buscar_solo_con_guias = st.checkbox("Solo con guias", value=False, key="buscar_con_guias")
+
+        if q:
+            mascara = pd.Series(False, index=df_b.index)
+            for col in ["descripcion", "modelo", "codigo_material", "observaciones",
+                        "codigo_oc", "guias", "desc_compra", "seller_code",
+                        "nombre_proveedor", "nro_factura"]:
+                if col in df_b.columns:
+                    mascara |= df_b[col].fillna("").astype(str).str.contains(q, case=False, na=False)
+            df_f = df_b[mascara].copy()
+        else:
+            df_f = df_b.copy()
+
+        if buscar_solo_con_guias and "guias" in df_f.columns:
+            df_f = df_f[df_f["guias"].notna()]
+
+        st.caption(f"Resultados: {len(df_f)} items")
+
+        COLS = [c for c in [
+            "codigo_oc", "item", "descripcion", "modelo", "guias",
+            "nombre_proveedor", "nro_factura", "seller_code", "precio_unitario",
+        ] if c in df_f.columns]
+
+        st.dataframe(
+            df_f[COLS].sort_values(["codigo_oc", "item"]),
+            hide_index=True,
+            width="stretch",
+            column_config={
+                "codigo_oc":        st.column_config.TextColumn("OC"),
+                "item":             st.column_config.NumberColumn("Item", format="%d"),
+                "descripcion":      st.column_config.TextColumn("Descripcion", width="large"),
+                "modelo":           st.column_config.TextColumn("Modelo"),
+                "guias":            st.column_config.TextColumn("Guias", width="large"),
+                "nombre_proveedor": st.column_config.TextColumn("Proveedor"),
+                "nro_factura":      st.column_config.TextColumn("Factura"),
+                "seller_code":      st.column_config.TextColumn("Cod. Proveedor"),
+                "precio_unitario":  st.column_config.NumberColumn("P.Unit USD", format="$%.2f"),
+            },
+        )
+
+# ============================================================
+# TAB 6: Compras — cruce OC con facturas de proveedores
 # ============================================================
 with tab_compras:
     st.header("Compras — Cruce OC con Proveedores")
@@ -665,7 +807,7 @@ with tab_compras:
         )
 
 # ============================================================
-# TAB 6: Facturas
+# TAB 7: Facturas
 # ============================================================
 with tab_facturas:
     st.header("Facturas Emitidas")
@@ -726,7 +868,7 @@ with tab_facturas:
         st.dataframe(df_f[cols], width='stretch', hide_index=True)
 
 # ============================================================
-# TAB 7: Control Nelida
+# TAB 8: Control Nelida
 # ============================================================
 with tab_nelida:
     st.header("Control Nélida")

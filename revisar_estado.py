@@ -40,6 +40,7 @@ NELIDA_BACKUP  = Path(r"C:\Dev\Netsat-Centrum\CONTROL DE FACTURAS EMITIDAS NETSA
 
 OC_DIR = Path(r"Z:\NETSAT\NETSAT 2026\ORDENES DE COMPRA 2026\OC CLIENTES 2026\ANTAPACCAY 2026")
 OC_RE  = re.compile(r"OC_(C\d+)", re.IGNORECASE)
+SUFIJO_RE = re.compile(r'\s*-\s*\d*\s*DIG\b.*$', re.IGNORECASE)
 
 GUIAS_FOLDERS = [
     ("GUIAS ENERO 2026/GUIAS SELLADAS 2026/GUIAS SELLADAS ENERO 26", "GUIAS ENERO 2026",   "ENERO"),
@@ -258,6 +259,7 @@ def revisar_nelida():
             for v in df[c_oc]:
                 s = str(v).strip()
                 if s and s not in ("nan", "None", ""):
+                    s = SUFIJO_RE.sub("", s).strip()
                     ids.add(s)
         _revisar_tabla_simple("proyectos", ids, "codigo_oc")
 
